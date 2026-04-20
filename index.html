@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Umdeni Health Lite</title>
+</head>
+<body>
+
+    <h1>Umdeni Health Lite</h1>
+    <p>Who is collecting medicine for gogo?</p>
+
+    <input type="text" id="nameInput" placeholder="Enter your name">
+
+    <input type="text" id="medInput" placeholder="Which medication are you collecting?">
+
+    <select id="roleSelect">
+        <option value="Me">Me</option>
+        <option value="Family Member">Family Member</option>
+        <option value="Caregiver">Caregiver</option>
+    </select>
+
+    <button onclick="submitForm()">Submit</button>
+
+    <p id="output"></p>
+
+    <script>
+        function submitForm() {
+            let name = document.getElementById("nameInput").value;
+            let role = document.getElementById("roleSelect").value;
+            let med = document.getElementById("medInput").value;
+
+            let message = name + " is collecting " + med + " as a " + role;
+
+            document.getElementById("output").innerText = message;
+        }
+    </script>
+
+</body>
+</html>
