@@ -18,6 +18,12 @@
         <option value="Caregiver">Caregiver</option>
     </select>
 
+    <select id="urgency">
+        <option value="Low">Low</option>
+        <option value="Medium">Medium</option>
+        <option value="High">High</option>
+    </select>
+
     <button onclick="submitForm()">Submit</button>
 
     <p id="output"></p>
@@ -27,8 +33,18 @@
             let name = document.getElementById("nameInput").value;
             let role = document.getElementById("roleSelect").value;
             let med = document.getElementById("medInput").value;
+            let urgency = document.getElementById("urgency").value;
 
-            let message = name + " is collecting " + med + " as a " + role;
+            if (name === "") {
+                document.getElementById("output").innerText = "Please enter your name";
+                return;
+            }
+
+            let message = name + " is collecting " + med + " as a " + role + " (Urgency: " + urgency + ")";
+
+            if (urgency === "High") {
+                message += " This is urgent. Please go to the clinic as soon as possible.";
+            }
 
             document.getElementById("output").innerText = message;
         }
