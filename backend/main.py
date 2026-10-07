@@ -1,5 +1,10 @@
 from fastapi import FastAPI
 
+from database import Base, engine
+import models
+
+Base.metadata.create_all(bind=engine)
+
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
@@ -19,4 +24,5 @@ def health():
     return {
         "status": "healthy",
         "service": "umdeni-health-lite-api",
+        "database": "connected",
     }
