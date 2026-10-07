@@ -23,10 +23,57 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 security = HTTPBearer()
+
+
+def get_authenticated_user(
+    credentials: HTTPAuthorizationCredentials,
+    db: Session,
+):
+    try:
+        payload = decode_access_token(
+            credentials.credentials
+        )
+        user_id = int(payload["sub"])
+    except (ValueError, KeyError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token.",
+        )
+
+    user = db.get(models.User, user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    return user
+
+
+def require_role(required_role: str):
+    def role_checker(
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+        db: Session = Depends(get_db),
+    ):
+        user = get_authenticated_user(
+            credentials,
+            db,
+        )
+
+        if user.role != required_role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{required_role.capitalize()} access required.",
+            )
+
+        return user
+
+    return role_checker
 
 
 @app.get("/")
@@ -122,23 +169,41 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ):
-    try:
-        payload = decode_access_token(
-            credentials.credentials
-        )
-        user_id = int(payload["sub"])
-    except (ValueError, KeyError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token.",
-        )
+    return get_authenticated_user(
+        credentials,
+        db,
+    )
 
-    user = db.get(models.User, user_id)
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found.",
-        )
+@app.get("/api/doctor/dashboard")
+def doctor_dashboard(
+    current_user: models.User = Depends(
+        require_role("doctor")
+    ),
+):
+    return {
+        "message": "Doctor dashboard access granted",
+        "user": {
+            "id": current_user.id,
+            "full_name": current_user.full_name,
+            "email": current_user.email,
+            "role": current_user.role,
+        },
+    }
 
-    return user
+
+@app.get("/api/patient/dashboard")
+def patient_dashboard(
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+):
+    return {
+        "message": "Patient dashboard access granted",
+        "user": {
+            "id": current_user.id,
+            "full_name": current_user.full_name,
+            "email": current_user.email,
+            "role": current_user.role,
+        },
+    }
