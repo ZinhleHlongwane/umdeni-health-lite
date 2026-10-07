@@ -171,3 +171,47 @@ class Medication(Base):
         DateTime,
         default=lambda: datetime.now(timezone.utc),
     )
+
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
+
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    doctor_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    appointment_date: Mapped[datetime] = mapped_column(
+        DateTime,
+        index=True,
+    )
+
+    reason: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(30),
+        default="scheduled",
+        index=True,
+    )
+
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+    )

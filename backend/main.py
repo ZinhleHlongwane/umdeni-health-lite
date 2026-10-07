@@ -20,6 +20,8 @@ from auth import (
 )
 from database import Base, engine, get_db
 from schemas import (
+    AppointmentCreate,
+    AppointmentResponse,
     ConsultationCreate,
     ConsultationResponse,
     MedicationCreate,
@@ -37,7 +39,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
-    version="0.7.0",
+    version="0.8.0",
 )
 
 security = HTTPBearer()
@@ -136,10 +138,7 @@ def register_user(
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "A user with this email "
-                "already exists."
-            ),
+            detail="A user with this email already exists.",
         )
 
     new_user = models.User(
@@ -477,3 +476,72 @@ def get_patient_medications(
     ).all()
 
     return medications
+
+
+@app.post(
+    "/api/doctor/appointments",
+    response_model=AppointmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_appointment(
+    appointment: AppointmentCreate,
+    current_user: models.User = Depends(
+        require_role("doctor")
+    ),
+    db: Session = Depends(get_db),
+):
+    patient = db.get(
+        models.User,
+        appointment.patient_id,
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient not found.",
+        )
+
+    if patient.role != "patient":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selected user is not a patient.",
+        )
+
+    new_appointment = models.Appointment(
+        patient_id=patient.id,
+        doctor_id=current_user.id,
+        appointment_date=appointment.appointment_date,
+        reason=appointment.reason,
+        status="scheduled",
+        notes=appointment.notes,
+    )
+
+    db.add(new_appointment)
+    db.commit()
+    db.refresh(new_appointment)
+
+    return new_appointment
+
+
+@app.get(
+    "/api/patient/appointments",
+    response_model=list[AppointmentResponse],
+)
+def get_patient_appointments(
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+    db: Session = Depends(get_db),
+):
+    appointments = db.scalars(
+        select(models.Appointment)
+        .where(
+            models.Appointment.patient_id
+            == current_user.id
+        )
+        .order_by(
+            models.Appointment.appointment_date.asc()
+        )
+    ).all()
+
+    return appointments

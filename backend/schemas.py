@@ -11,6 +11,12 @@ class UserRole(str, Enum):
     caregiver = "caregiver"
 
 
+class AppointmentStatus(str, Enum):
+    scheduled = "scheduled"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
 class UserCreate(BaseModel):
     full_name: str = Field(
         min_length=2,
@@ -114,7 +120,6 @@ class ConsultationResponse(BaseModel):
 
 class MedicationCreate(BaseModel):
     patient_id: int
-
     consultation_id: int | None = None
 
     medication_name: str = Field(
@@ -151,6 +156,33 @@ class MedicationResponse(BaseModel):
     duration: str | None
     instructions: str | None
     prescribed_at: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class AppointmentCreate(BaseModel):
+    patient_id: int
+    appointment_date: datetime
+
+    reason: str = Field(
+        min_length=2,
+        max_length=255,
+    )
+
+    notes: str | None = None
+
+
+class AppointmentResponse(BaseModel):
+    id: int
+    patient_id: int
+    doctor_id: int
+    appointment_date: datetime
+    reason: str
+    status: AppointmentStatus
+    notes: str | None
+    created_at: datetime
 
     model_config = {
         "from_attributes": True
