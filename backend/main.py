@@ -1,5 +1,13 @@
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    status,
+)
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,6 +20,8 @@ from auth import (
 )
 from database import Base, engine, get_db
 from schemas import (
+    PatientProfileCreate,
+    PatientProfileResponse,
     TokenResponse,
     UserCreate,
     UserLogin,
@@ -23,7 +33,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 security = HTTPBearer()
@@ -38,13 +48,17 @@ def get_authenticated_user(
             credentials.credentials
         )
         user_id = int(payload["sub"])
+
     except (ValueError, KeyError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token.",
         )
 
-    user = db.get(models.User, user_id)
+    user = db.get(
+        models.User,
+        user_id,
+    )
 
     if not user:
         raise HTTPException(
@@ -57,7 +71,9 @@ def get_authenticated_user(
 
 def require_role(required_role: str):
     def role_checker(
-        credentials: HTTPAuthorizationCredentials = Depends(security),
+        credentials: HTTPAuthorizationCredentials = Depends(
+            security
+        ),
         db: Session = Depends(get_db),
     ):
         user = get_authenticated_user(
@@ -68,7 +84,10 @@ def require_role(required_role: str):
         if user.role != required_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"{required_role.capitalize()} access required.",
+                detail=(
+                    f"{required_role.capitalize()} "
+                    "access required."
+                ),
             )
 
         return user
@@ -110,13 +129,18 @@ def register_user(
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="A user with this email already exists.",
+            detail=(
+                "A user with this email "
+                "already exists."
+            ),
         )
 
     new_user = models.User(
         full_name=user.full_name,
         email=user.email,
-        password_hash=hash_password(user.password),
+        password_hash=hash_password(
+            user.password
+        ),
         role=user.role.value,
     )
 
@@ -137,7 +161,8 @@ def login(
 ):
     user = db.scalar(
         select(models.User).where(
-            models.User.email == credentials.email
+            models.User.email
+            == credentials.email
         )
     )
 
@@ -166,7 +191,9 @@ def login(
     response_model=UserResponse,
 )
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials = Depends(
+        security
+    ),
     db: Session = Depends(get_db),
 ):
     return get_authenticated_user(
@@ -182,7 +209,9 @@ def doctor_dashboard(
     ),
 ):
     return {
-        "message": "Doctor dashboard access granted",
+        "message": (
+            "Doctor dashboard access granted"
+        ),
         "user": {
             "id": current_user.id,
             "full_name": current_user.full_name,
@@ -199,7 +228,9 @@ def patient_dashboard(
     ),
 ):
     return {
-        "message": "Patient dashboard access granted",
+        "message": (
+            "Patient dashboard access granted"
+        ),
         "user": {
             "id": current_user.id,
             "full_name": current_user.full_name,
@@ -207,3 +238,78 @@ def patient_dashboard(
             "role": current_user.role,
         },
     }
+
+
+@app.post(
+    "/api/patient/profile",
+    response_model=PatientProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_patient_profile(
+    profile: PatientProfileCreate,
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+    db: Session = Depends(get_db),
+):
+    existing_profile = db.scalar(
+        select(models.PatientProfile).where(
+            models.PatientProfile.user_id
+            == current_user.id
+        )
+    )
+
+    if existing_profile:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Patient profile already exists."
+            ),
+        )
+
+    patient_profile = models.PatientProfile(
+        user_id=current_user.id,
+        date_of_birth=profile.date_of_birth,
+        phone_number=profile.phone_number,
+        preferred_language=(
+            profile.preferred_language
+        ),
+        emergency_contact_name=(
+            profile.emergency_contact_name
+        ),
+        emergency_contact_phone=(
+            profile.emergency_contact_phone
+        ),
+    )
+
+    db.add(patient_profile)
+    db.commit()
+    db.refresh(patient_profile)
+
+    return patient_profile
+
+
+@app.get(
+    "/api/patient/profile",
+    response_model=PatientProfileResponse,
+)
+def get_patient_profile(
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+    db: Session = Depends(get_db),
+):
+    profile = db.scalar(
+        select(models.PatientProfile).where(
+            models.PatientProfile.user_id
+            == current_user.id
+        )
+    )
+
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient profile not found.",
+        )
+
+    return profile
