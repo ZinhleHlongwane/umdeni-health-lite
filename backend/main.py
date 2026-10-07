@@ -1,14 +1,18 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from database import Base, engine
 import models
+from auth import hash_password
+from database import Base, engine, get_db
+from schemas import UserCreate, UserResponse
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 
@@ -26,3 +30,38 @@ def health():
         "service": "umdeni-health-lite-api",
         "database": "connected",
     }
+
+
+@app.post(
+    "/api/users/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_user(
+    user: UserCreate,
+    db: Session = Depends(get_db),
+):
+    existing_user = db.scalar(
+        select(models.User).where(
+            models.User.email == user.email
+        )
+    )
+
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists.",
+        )
+
+    new_user = models.User(
+        full_name=user.full_name,
+        email=user.email,
+        password_hash=hash_password(user.password),
+        role=user.role.value,
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return new_user
