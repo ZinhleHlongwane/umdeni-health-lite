@@ -24,10 +24,13 @@ from schemas import (
     AppointmentResponse,
     ConsultationCreate,
     ConsultationResponse,
+    FamilyAccessCreate,
+    FamilyAccessResponse,
     MedicationCreate,
     MedicationResponse,
     PatientProfileCreate,
     PatientProfileResponse,
+    SharedHealthRecordResponse,
     TokenResponse,
     UserCreate,
     UserLogin,
@@ -39,7 +42,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
-    version="0.8.0",
+    version="0.9.0",
 )
 
 security = HTTPBearer()
@@ -53,10 +56,7 @@ def get_authenticated_user(
         payload = decode_access_token(
             credentials.credentials
         )
-
-        user_id = int(
-            payload["sub"]
-        )
+        user_id = int(payload["sub"])
 
     except (ValueError, KeyError):
         raise HTTPException(
@@ -102,6 +102,31 @@ def require_role(required_role: str):
         return user
 
     return role_checker
+
+
+def require_family_or_caregiver(
+    credentials: HTTPAuthorizationCredentials = Depends(
+        security
+    ),
+    db: Session = Depends(get_db),
+):
+    user = get_authenticated_user(
+        credentials,
+        db,
+    )
+
+    if user.role not in {
+        "family",
+        "caregiver",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Family or caregiver access required."
+            ),
+        )
+
+    return user
 
 
 @app.get("/")
@@ -363,7 +388,7 @@ def get_patient_consultations(
     ),
     db: Session = Depends(get_db),
 ):
-    consultations = db.scalars(
+    return db.scalars(
         select(models.Consultation)
         .where(
             models.Consultation.patient_id
@@ -373,8 +398,6 @@ def get_patient_consultations(
             models.Consultation.consultation_date.desc()
         )
     ).all()
-
-    return consultations
 
 
 @app.post(
@@ -464,7 +487,7 @@ def get_patient_medications(
     ),
     db: Session = Depends(get_db),
 ):
-    medications = db.scalars(
+    return db.scalars(
         select(models.Medication)
         .where(
             models.Medication.patient_id
@@ -474,8 +497,6 @@ def get_patient_medications(
             models.Medication.prescribed_at.desc()
         )
     ).all()
-
-    return medications
 
 
 @app.post(
@@ -533,7 +554,7 @@ def get_patient_appointments(
     ),
     db: Session = Depends(get_db),
 ):
-    appointments = db.scalars(
+    return db.scalars(
         select(models.Appointment)
         .where(
             models.Appointment.patient_id
@@ -544,4 +565,168 @@ def get_patient_appointments(
         )
     ).all()
 
-    return appointments
+
+@app.post(
+    "/api/patient/family-access",
+    response_model=FamilyAccessResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_family_access(
+    access: FamilyAccessCreate,
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+    db: Session = Depends(get_db),
+):
+    member = db.scalar(
+        select(models.User).where(
+            models.User.email == access.member_email
+        )
+    )
+
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Family member or caregiver not found.",
+        )
+
+    if member.role not in {
+        "family",
+        "caregiver",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Selected user must have a family "
+                "or caregiver role."
+            ),
+        )
+
+    existing_access = db.scalar(
+        select(models.FamilyAccess).where(
+            models.FamilyAccess.patient_id
+            == current_user.id,
+            models.FamilyAccess.member_id
+            == member.id,
+        )
+    )
+
+    if existing_access:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Access relationship already exists.",
+        )
+
+    family_access = models.FamilyAccess(
+        patient_id=current_user.id,
+        member_id=member.id,
+        relationship_type=access.relationship_type,
+        can_view_consultations=access.can_view_consultations,
+        can_view_medications=access.can_view_medications,
+        can_view_appointments=access.can_view_appointments,
+    )
+
+    db.add(family_access)
+    db.commit()
+    db.refresh(family_access)
+
+    return family_access
+
+
+@app.get(
+    "/api/patient/family-access",
+    response_model=list[FamilyAccessResponse],
+)
+def get_family_access(
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(
+        select(models.FamilyAccess).where(
+            models.FamilyAccess.patient_id
+            == current_user.id
+        )
+    ).all()
+
+
+@app.get(
+    "/api/family/shared-records",
+    response_model=list[SharedHealthRecordResponse],
+)
+def get_shared_records(
+    current_user: models.User = Depends(
+        require_family_or_caregiver
+    ),
+    db: Session = Depends(get_db),
+):
+    access_records = db.scalars(
+        select(models.FamilyAccess).where(
+            models.FamilyAccess.member_id
+            == current_user.id
+        )
+    ).all()
+
+    results = []
+
+    for access in access_records:
+        patient = db.get(
+            models.User,
+            access.patient_id,
+        )
+
+        consultations = []
+
+        if access.can_view_consultations:
+            consultations = db.scalars(
+                select(models.Consultation)
+                .where(
+                    models.Consultation.patient_id
+                    == access.patient_id
+                )
+                .order_by(
+                    models.Consultation.consultation_date.desc()
+                )
+            ).all()
+
+        medications = []
+
+        if access.can_view_medications:
+            medications = db.scalars(
+                select(models.Medication)
+                .where(
+                    models.Medication.patient_id
+                    == access.patient_id
+                )
+                .order_by(
+                    models.Medication.prescribed_at.desc()
+                )
+            ).all()
+
+        appointments = []
+
+        if access.can_view_appointments:
+            appointments = db.scalars(
+                select(models.Appointment)
+                .where(
+                    models.Appointment.patient_id
+                    == access.patient_id
+                )
+                .order_by(
+                    models.Appointment.appointment_date.asc()
+                )
+            ).all()
+
+        results.append(
+            {
+                "patient_id": patient.id,
+                "patient_name": patient.full_name,
+                "relationship_type": access.relationship_type,
+                "consultations": consultations,
+                "medications": medications,
+                "appointments": appointments,
+            }
+        )
+
+    return results

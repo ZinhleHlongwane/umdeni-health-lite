@@ -187,3 +187,40 @@ class AppointmentResponse(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+
+class FamilyAccessCreate(BaseModel):
+    member_email: EmailStr
+
+    relationship_type: str = Field(
+        min_length=2,
+        max_length=80,
+    )
+
+    can_view_consultations: bool = False
+    can_view_medications: bool = False
+    can_view_appointments: bool = False
+
+
+class FamilyAccessResponse(BaseModel):
+    id: int
+    patient_id: int
+    member_id: int
+    relationship_type: str
+    can_view_consultations: bool
+    can_view_medications: bool
+    can_view_appointments: bool
+    created_at: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class SharedHealthRecordResponse(BaseModel):
+    patient_id: int
+    patient_name: str
+    relationship_type: str
+    consultations: list[ConsultationResponse]
+    medications: list[MedicationResponse]
+    appointments: list[AppointmentResponse]

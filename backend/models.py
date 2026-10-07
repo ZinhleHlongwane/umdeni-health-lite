@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -209,6 +209,49 @@ class Appointment(Base):
     notes: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class FamilyAccess(Base):
+    __tablename__ = "family_access"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
+
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    member_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    relationship_type: Mapped[str] = mapped_column(
+        String(80)
+    )
+
+    can_view_consultations: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+
+    can_view_medications: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+
+    can_view_appointments: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
     )
 
     created_at: Mapped[datetime] = mapped_column(
