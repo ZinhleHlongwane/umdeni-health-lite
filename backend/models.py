@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -13,17 +13,21 @@ class User(Base):
         primary_key=True,
         index=True,
     )
+
     full_name: Mapped[str] = mapped_column(
         String(120)
     )
+
     email: Mapped[str] = mapped_column(
         String(180),
         unique=True,
         index=True,
     )
+
     password_hash: Mapped[str] = mapped_column(
         String(255)
     )
+
     role: Mapped[str] = mapped_column(
         String(30),
         index=True,
@@ -99,7 +103,7 @@ class Consultation(Base):
 
     consultation_date: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
     )
 
     reason: Mapped[str] = mapped_column(
@@ -114,4 +118,56 @@ class Consultation(Base):
     notes: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
+    )
+
+
+class Medication(Base):
+    __tablename__ = "medications"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
+
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    doctor_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    consultation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("consultations.id"),
+        nullable=True,
+        index=True,
+    )
+
+    medication_name: Mapped[str] = mapped_column(
+        String(120)
+    )
+
+    dosage: Mapped[str] = mapped_column(
+        String(120)
+    )
+
+    frequency: Mapped[str] = mapped_column(
+        String(120)
+    )
+
+    duration: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+    )
+
+    instructions: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    prescribed_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
     )

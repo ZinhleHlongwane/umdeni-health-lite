@@ -22,6 +22,8 @@ from database import Base, engine, get_db
 from schemas import (
     ConsultationCreate,
     ConsultationResponse,
+    MedicationCreate,
+    MedicationResponse,
     PatientProfileCreate,
     PatientProfileResponse,
     TokenResponse,
@@ -35,7 +37,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
-    version="0.6.0",
+    version="0.7.0",
 )
 
 security = HTTPBearer()
@@ -49,7 +51,10 @@ def get_authenticated_user(
         payload = decode_access_token(
             credentials.credentials
         )
-        user_id = int(payload["sub"])
+
+        user_id = int(
+            payload["sub"]
+        )
 
     except (ValueError, KeyError):
         raise HTTPException(
@@ -211,9 +216,7 @@ def doctor_dashboard(
     ),
 ):
     return {
-        "message": (
-            "Doctor dashboard access granted"
-        ),
+        "message": "Doctor dashboard access granted",
         "user": {
             "id": current_user.id,
             "full_name": current_user.full_name,
@@ -230,9 +233,7 @@ def patient_dashboard(
     ),
 ):
     return {
-        "message": (
-            "Patient dashboard access granted"
-        ),
+        "message": "Patient dashboard access granted",
         "user": {
             "id": current_user.id,
             "full_name": current_user.full_name,
@@ -264,24 +265,16 @@ def create_patient_profile(
     if existing_profile:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Patient profile already exists."
-            ),
+            detail="Patient profile already exists.",
         )
 
     patient_profile = models.PatientProfile(
         user_id=current_user.id,
         date_of_birth=profile.date_of_birth,
         phone_number=profile.phone_number,
-        preferred_language=(
-            profile.preferred_language
-        ),
-        emergency_contact_name=(
-            profile.emergency_contact_name
-        ),
-        emergency_contact_phone=(
-            profile.emergency_contact_phone
-        ),
+        preferred_language=profile.preferred_language,
+        emergency_contact_name=profile.emergency_contact_name,
+        emergency_contact_phone=profile.emergency_contact_phone,
     )
 
     db.add(patient_profile)
@@ -343,9 +336,7 @@ def create_consultation(
     if patient.role != "patient":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Selected user is not a patient."
-            ),
+            detail="Selected user is not a patient.",
         )
 
     new_consultation = models.Consultation(
@@ -385,3 +376,104 @@ def get_patient_consultations(
     ).all()
 
     return consultations
+
+
+@app.post(
+    "/api/doctor/medications",
+    response_model=MedicationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_medication(
+    medication: MedicationCreate,
+    current_user: models.User = Depends(
+        require_role("doctor")
+    ),
+    db: Session = Depends(get_db),
+):
+    patient = db.get(
+        models.User,
+        medication.patient_id,
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient not found.",
+        )
+
+    if patient.role != "patient":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selected user is not a patient.",
+        )
+
+    if medication.consultation_id is not None:
+        consultation = db.get(
+            models.Consultation,
+            medication.consultation_id,
+        )
+
+        if not consultation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Consultation not found.",
+            )
+
+        if consultation.patient_id != patient.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Consultation does not belong "
+                    "to this patient."
+                ),
+            )
+
+        if consultation.doctor_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "You cannot prescribe medication "
+                    "for another doctor's consultation."
+                ),
+            )
+
+    new_medication = models.Medication(
+        patient_id=patient.id,
+        doctor_id=current_user.id,
+        consultation_id=medication.consultation_id,
+        medication_name=medication.medication_name,
+        dosage=medication.dosage,
+        frequency=medication.frequency,
+        duration=medication.duration,
+        instructions=medication.instructions,
+    )
+
+    db.add(new_medication)
+    db.commit()
+    db.refresh(new_medication)
+
+    return new_medication
+
+
+@app.get(
+    "/api/patient/medications",
+    response_model=list[MedicationResponse],
+)
+def get_patient_medications(
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+    db: Session = Depends(get_db),
+):
+    medications = db.scalars(
+        select(models.Medication)
+        .where(
+            models.Medication.patient_id
+            == current_user.id
+        )
+        .order_by(
+            models.Medication.prescribed_at.desc()
+        )
+    ).all()
+
+    return medications
