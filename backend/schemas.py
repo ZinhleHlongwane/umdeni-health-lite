@@ -17,6 +17,11 @@ class UserCreate(BaseModel):
     role: UserRole
 
 
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
 class UserResponse(BaseModel):
     id: int
     full_name: str
@@ -26,3 +31,8 @@ class UserResponse(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
