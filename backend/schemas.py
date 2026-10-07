@@ -1,226 +1,307 @@
-from datetime import date, datetime
-from enum import Enum
+from datetime import date, datetime, timezone
 
-from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-
-class UserRole(str, Enum):
-    doctor = "doctor"
-    patient = "patient"
-    family = "family"
-    caregiver = "caregiver"
-
-
-class AppointmentStatus(str, Enum):
-    scheduled = "scheduled"
-    completed = "completed"
-    cancelled = "cancelled"
+from database import Base
 
 
-class UserCreate(BaseModel):
-    full_name: str = Field(
-        min_length=2,
-        max_length=120,
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
     )
 
-    email: EmailStr
-    password: str = Field(min_length=8)
-    role: UserRole
-
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class UserResponse(BaseModel):
-    id: int
-    full_name: str
-    email: EmailStr
-    role: UserRole
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
-class PatientProfileCreate(BaseModel):
-    date_of_birth: date | None = None
-
-    phone_number: str | None = Field(
-        default=None,
-        max_length=30,
+    full_name: Mapped[str] = mapped_column(
+        String(120)
     )
 
-    preferred_language: str = Field(
+    email: Mapped[str] = mapped_column(
+        String(180),
+        unique=True,
+        index=True,
+    )
+
+    password_hash: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    role: Mapped[str] = mapped_column(
+        String(30),
+        index=True,
+    )
+
+    patient_profile: Mapped["PatientProfile | None"] = relationship(
+        back_populates="user",
+        uselist=False,
+    )
+
+
+class PatientProfile(Base):
+    __tablename__ = "patient_profiles"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        unique=True,
+        index=True,
+    )
+
+    date_of_birth: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    phone_number: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
+    )
+
+    preferred_language: Mapped[str] = mapped_column(
+        String(30),
         default="English",
-        min_length=2,
-        max_length=30,
     )
 
-    emergency_contact_name: str | None = Field(
-        default=None,
-        max_length=120,
+    emergency_contact_name: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
     )
 
-    emergency_contact_phone: str | None = Field(
-        default=None,
-        max_length=30,
+    emergency_contact_phone: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
+    )
+
+    user: Mapped["User"] = relationship(
+        back_populates="patient_profile"
     )
 
 
-class PatientProfileResponse(BaseModel):
-    id: int
-    user_id: int
-    date_of_birth: date | None
-    phone_number: str | None
-    preferred_language: str
-    emergency_contact_name: str | None
-    emergency_contact_phone: str | None
+class Consultation(Base):
+    __tablename__ = "consultations"
 
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class ConsultationCreate(BaseModel):
-    patient_id: int
-
-    reason: str = Field(
-        min_length=2,
-        max_length=255,
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
     )
 
-    diagnosis: str | None = Field(
-        default=None,
-        max_length=255,
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
     )
 
-    notes: str | None = None
-
-
-class ConsultationResponse(BaseModel):
-    id: int
-    patient_id: int
-    doctor_id: int
-    consultation_date: datetime
-    reason: str
-    diagnosis: str | None
-    notes: str | None
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class MedicationCreate(BaseModel):
-    patient_id: int
-    consultation_id: int | None = None
-
-    medication_name: str = Field(
-        min_length=2,
-        max_length=120,
+    doctor_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
     )
 
-    dosage: str = Field(
-        min_length=1,
-        max_length=120,
+    consultation_date: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
     )
 
-    frequency: str = Field(
-        min_length=2,
-        max_length=120,
+    reason: Mapped[str] = mapped_column(
+        String(255)
     )
 
-    duration: str | None = Field(
-        default=None,
-        max_length=120,
+    diagnosis: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
     )
 
-    instructions: str | None = None
-
-
-class MedicationResponse(BaseModel):
-    id: int
-    patient_id: int
-    doctor_id: int
-    consultation_id: int | None
-    medication_name: str
-    dosage: str
-    frequency: str
-    duration: str | None
-    instructions: str | None
-    prescribed_at: datetime
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class AppointmentCreate(BaseModel):
-    patient_id: int
-    appointment_date: datetime
-
-    reason: str = Field(
-        min_length=2,
-        max_length=255,
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
-    notes: str | None = None
 
+class Medication(Base):
+    __tablename__ = "medications"
 
-class AppointmentResponse(BaseModel):
-    id: int
-    patient_id: int
-    doctor_id: int
-    appointment_date: datetime
-    reason: str
-    status: AppointmentStatus
-    notes: str | None
-    created_at: datetime
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class FamilyAccessCreate(BaseModel):
-    member_email: EmailStr
-
-    relationship_type: str = Field(
-        min_length=2,
-        max_length=80,
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
     )
 
-    can_view_consultations: bool = False
-    can_view_medications: bool = False
-    can_view_appointments: bool = False
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    doctor_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    consultation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("consultations.id"),
+        nullable=True,
+        index=True,
+    )
+
+    medication_name: Mapped[str] = mapped_column(
+        String(120)
+    )
+
+    dosage: Mapped[str] = mapped_column(
+        String(120)
+    )
+
+    frequency: Mapped[str] = mapped_column(
+        String(120)
+    )
+
+    duration: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+    )
+
+    instructions: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    prescribed_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+    )
 
 
-class FamilyAccessResponse(BaseModel):
-    id: int
-    patient_id: int
-    member_id: int
-    relationship_type: str
-    can_view_consultations: bool
-    can_view_medications: bool
-    can_view_appointments: bool
-    created_at: datetime
+class Appointment(Base):
+    __tablename__ = "appointments"
 
-    model_config = {
-        "from_attributes": True
-    }
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
+
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    doctor_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    appointment_date: Mapped[datetime] = mapped_column(
+        DateTime,
+        index=True,
+    )
+
+    reason: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(30),
+        default="scheduled",
+        index=True,
+    )
+
+    notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+    )
 
 
-class SharedHealthRecordResponse(BaseModel):
-    patient_id: int
-    patient_name: str
-    relationship_type: str
-    consultations: list[ConsultationResponse]
-    medications: list[MedicationResponse]
-    appointments: list[AppointmentResponse]
+class FamilyAccess(Base):
+    __tablename__ = "family_access"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
+
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    member_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    relationship_type: Mapped[str] = mapped_column(
+        String(80)
+    )
+
+    can_view_consultations: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+
+    can_view_medications: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+
+    can_view_appointments: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class RecordShareToken(Base):
+    __tablename__ = "record_share_tokens"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
+
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    token_hash: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        index=True,
+    )
+
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+    )
+
+    redeemed_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    redeemed_by_doctor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+    )

@@ -1,3 +1,8 @@
+import hashlib
+import secrets
+
+from datetime import datetime, timedelta
+
 from fastapi import (
     Depends,
     FastAPI,
@@ -30,6 +35,9 @@ from schemas import (
     MedicationResponse,
     PatientProfileCreate,
     PatientProfileResponse,
+    QRHealthRecordResponse,
+    QRRedeemRequest,
+    QRShareResponse,
     SharedHealthRecordResponse,
     TokenResponse,
     UserCreate,
@@ -42,7 +50,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
-    version="0.9.0",
+    version="1.0.0",
 )
 
 security = HTTPBearer()
@@ -56,6 +64,7 @@ def get_authenticated_user(
         payload = decode_access_token(
             credentials.credentials
         )
+
         user_id = int(payload["sub"])
 
     except (ValueError, KeyError):
@@ -730,3 +739,152 @@ def get_shared_records(
         )
 
     return results
+
+
+@app.post(
+    "/api/patient/qr-share",
+    response_model=QRShareResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_qr_share(
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+    db: Session = Depends(get_db),
+):
+    raw_token = secrets.token_urlsafe(32)
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    expires_at = datetime.utcnow() + timedelta(
+        minutes=10
+    )
+
+    share_token = models.RecordShareToken(
+        patient_id=current_user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+
+    db.add(share_token)
+    db.commit()
+
+    qr_payload = (
+        f"umdeni://share?token={raw_token}"
+    )
+
+    return {
+        "token": raw_token,
+        "qr_payload": qr_payload,
+        "expires_at": expires_at,
+        "expires_in_minutes": 10,
+    }
+
+
+@app.post(
+    "/api/doctor/qr-share/redeem",
+    response_model=QRHealthRecordResponse,
+)
+def redeem_qr_share(
+    request: QRRedeemRequest,
+    current_user: models.User = Depends(
+        require_role("doctor")
+    ),
+    db: Session = Depends(get_db),
+):
+    token_hash = hashlib.sha256(
+        request.token.encode("utf-8")
+    ).hexdigest()
+
+    share_token = db.scalar(
+        select(models.RecordShareToken).where(
+            models.RecordShareToken.token_hash
+            == token_hash
+        )
+    )
+
+    if not share_token:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sharing token not found.",
+        )
+
+    if share_token.redeemed_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sharing token has already been used.",
+        )
+
+    if datetime.utcnow() > share_token.expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Sharing token has expired.",
+        )
+
+    patient = db.get(
+        models.User,
+        share_token.patient_id,
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient not found.",
+        )
+
+    profile = db.scalar(
+        select(models.PatientProfile).where(
+            models.PatientProfile.user_id
+            == patient.id
+        )
+    )
+
+    consultations = db.scalars(
+        select(models.Consultation)
+        .where(
+            models.Consultation.patient_id
+            == patient.id
+        )
+        .order_by(
+            models.Consultation.consultation_date.desc()
+        )
+    ).all()
+
+    medications = db.scalars(
+        select(models.Medication)
+        .where(
+            models.Medication.patient_id
+            == patient.id
+        )
+        .order_by(
+            models.Medication.prescribed_at.desc()
+        )
+    ).all()
+
+    appointments = db.scalars(
+        select(models.Appointment)
+        .where(
+            models.Appointment.patient_id
+            == patient.id
+        )
+        .order_by(
+            models.Appointment.appointment_date.asc()
+        )
+    ).all()
+
+    share_token.redeemed_at = datetime.utcnow()
+    share_token.redeemed_by_doctor_id = (
+        current_user.id
+    )
+
+    db.commit()
+
+    return {
+        "patient": patient,
+        "profile": profile,
+        "consultations": consultations,
+        "medications": medications,
+        "appointments": appointments,
+    }
