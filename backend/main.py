@@ -20,6 +20,8 @@ from auth import (
 )
 from database import Base, engine, get_db
 from schemas import (
+    ConsultationCreate,
+    ConsultationResponse,
     PatientProfileCreate,
     PatientProfileResponse,
     TokenResponse,
@@ -33,7 +35,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Umdeni Health Lite API",
     description="Backend API for Umdeni Health Lite",
-    version="0.5.0",
+    version="0.6.0",
 )
 
 security = HTTPBearer()
@@ -313,3 +315,73 @@ def get_patient_profile(
         )
 
     return profile
+
+
+@app.post(
+    "/api/doctor/consultations",
+    response_model=ConsultationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_consultation(
+    consultation: ConsultationCreate,
+    current_user: models.User = Depends(
+        require_role("doctor")
+    ),
+    db: Session = Depends(get_db),
+):
+    patient = db.get(
+        models.User,
+        consultation.patient_id,
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient not found.",
+        )
+
+    if patient.role != "patient":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Selected user is not a patient."
+            ),
+        )
+
+    new_consultation = models.Consultation(
+        patient_id=patient.id,
+        doctor_id=current_user.id,
+        reason=consultation.reason,
+        diagnosis=consultation.diagnosis,
+        notes=consultation.notes,
+    )
+
+    db.add(new_consultation)
+    db.commit()
+    db.refresh(new_consultation)
+
+    return new_consultation
+
+
+@app.get(
+    "/api/patient/consultations",
+    response_model=list[ConsultationResponse],
+)
+def get_patient_consultations(
+    current_user: models.User = Depends(
+        require_role("patient")
+    ),
+    db: Session = Depends(get_db),
+):
+    consultations = db.scalars(
+        select(models.Consultation)
+        .where(
+            models.Consultation.patient_id
+            == current_user.id
+        )
+        .order_by(
+            models.Consultation.consultation_date.desc()
+        )
+    ).all()
+
+    return consultations

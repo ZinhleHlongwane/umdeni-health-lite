@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel, EmailStr, Field
@@ -75,6 +75,36 @@ class PatientProfileResponse(BaseModel):
     preferred_language: str
     emergency_contact_name: str | None
     emergency_contact_phone: str | None
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class ConsultationCreate(BaseModel):
+    patient_id: int
+
+    reason: str = Field(
+        min_length=2,
+        max_length=255,
+    )
+
+    diagnosis: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    notes: str | None = None
+
+
+class ConsultationResponse(BaseModel):
+    id: int
+    patient_id: int
+    doctor_id: int
+    consultation_date: datetime
+    reason: str
+    diagnosis: str | None
+    notes: str | None
 
     model_config = {
         "from_attributes": True
